@@ -46,16 +46,36 @@ class ChainExplorerPage extends StatelessWidget {
     final state = context.watch<ChainCubit>().state;
     return Scaffold(
       appBar: AppBar(
-        title: const Column(
+        title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('BlockCore Studio'),
+            const Text('BlockCore Studio'),
             Text(
-              'PROTOCOL LAB / LOCAL NODE',
-              style: TextStyle(fontSize: 10, letterSpacing: 1.6),
+              'AĞ DURUMU: ${_networkStatus(state)}',
+              style: TextStyle(
+                color: state.blocks.every((block) => block.isValid)
+                    ? const Color(0xFF53F2C2)
+                    : const Color(0xFFE53935),
+                fontSize: 10,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 1.2,
+              ),
             ),
           ],
         ),
+        actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 16),
+            child: Icon(
+              state.blocks.every((block) => block.isValid)
+                  ? Icons.verified_user_outlined
+                  : Icons.gpp_bad_outlined,
+              color: state.blocks.every((block) => block.isValid)
+                  ? const Color(0xFF53F2C2)
+                  : const Color(0xFFE53935),
+            ),
+          ),
+        ],
       ),
       body: ListView(
         padding: const EdgeInsets.only(bottom: 120),
@@ -75,7 +95,30 @@ class ChainExplorerPage extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 8),
-          ChainCanvasView(blocks: state.blocks),
+          ChainCanvasView(
+            blocks: state.blocks,
+            onCorruptBlock: context.read<ChainCubit>().corruptBlock,
+          ),
+          if (state.blocks.any((block) => !block.isValid)) ...[
+            const SizedBox(height: 4),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: OutlinedButton.icon(
+                onPressed: state.isMining
+                    ? null
+                    : () {
+                        final firstInvalid = state.blocks.indexWhere(
+                          (block) => !block.isValid,
+                        );
+                        if (firstInvalid >= 0) {
+                          context.read<ChainCubit>().repairChain(firstInvalid);
+                        }
+                      },
+                icon: const Icon(Icons.build_circle_outlined),
+                label: const Text('Zinciri Yeniden Doğrula & Onar'),
+              ),
+            ),
+          ],
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(
@@ -94,6 +137,12 @@ class ChainExplorerPage extends StatelessWidget {
         label: Text(state.isMining ? 'MADENCİLİK SÜRÜYOR' : 'BLOK KAZ'),
       ),
     );
+  }
+
+  String _networkStatus(ChainState state) {
+    return state.blocks.every((block) => block.isValid)
+        ? 'GÜVENLİ (YEŞİL)'
+        : 'ZİNCİR KIRILDI / TEHDİT (KIRMIZI)';
   }
 }
 

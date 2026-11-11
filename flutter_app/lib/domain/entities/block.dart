@@ -5,6 +5,9 @@ class Block {
     required this.previousHash,
     required this.nonce,
     required this.difficulty,
+    this.data = '',
+    this.isValid = true,
+    this.isCorrupted = false,
   });
 
   final int index;
@@ -12,6 +15,9 @@ class Block {
   final String previousHash;
   final int nonce;
   final int difficulty;
+  final String data;
+  final bool isValid;
+  final bool isCorrupted;
 
   String get shortHash => hash.length > 12 ? '${hash.substring(0, 12)}…' : hash;
 
