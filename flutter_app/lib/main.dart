@@ -92,6 +92,13 @@ class ChainExplorerPage extends StatelessWidget {
                   : const Color(0xFFE53935),
             ),
           ),
+          IconButton(
+            tooltip: 'Zinciri Sıfırla',
+            onPressed: state.isMining
+                ? null
+                : () => context.read<ChainCubit>().resetChain(),
+            icon: const Icon(Icons.restart_alt),
+          ),
         ],
       ),
       body: ListView(

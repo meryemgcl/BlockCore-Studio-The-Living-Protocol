@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 
@@ -5,6 +6,7 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../domain/entities/block.dart';
+import '../../data/datasources/chain_local_storage.dart';
 import '../../domain/usecases/isolated_miner.dart';
 
 enum ConsensusType { pow, pos }
@@ -62,9 +64,20 @@ class ChainState {
 }
 
 class ChainCubit extends Cubit<ChainState> {
-  ChainCubit() : super(const ChainState());
+  ChainCubit()
+      : _storage = ChainLocalStorage(),
+        super(const ChainState()) {
+    _hydrated = _initialize();
+  }
 
   static const validators = ['Alpha', 'Beta', 'Gamma'];
+  final ChainLocalStorage _storage;
+  late final Future<void> _hydrated;
+
+  Future<void> _initialize() async {
+    final blocks = await _storage.loadChain();
+    if (!isClosed) emit(state.copyWith(blocks: blocks));
+  }
 
   void toggleConsensus(ConsensusType type) {
     if (state.isMining || state.consensusType == type) return;
@@ -82,6 +95,7 @@ class ChainCubit extends Cubit<ChainState> {
   }
 
   Future<void> addDemoBlock() async {
+    await _hydrated;
     if (state.isMining) return;
 
     final previous = state.blocks.isEmpty ? '0' * 64 : state.blocks.last.hash;
@@ -99,7 +113,6 @@ class ChainCubit extends Cubit<ChainState> {
         hashrate: 'Hesaplanıyor...',
       ),
     );
-
     final result = state.consensusType == ConsensusType.pow
         ? await _mineBlock(
             index: index,
@@ -134,6 +147,7 @@ class ChainCubit extends Cubit<ChainState> {
         hashrate: state.consensusType == ConsensusType.pow ? hashrateStr : '0 H/s (PoS)',
       ),
     );
+    await _storage.saveChain(state.blocks);
   }
 
   void validateChain() {
@@ -204,10 +218,12 @@ class ChainCubit extends Cubit<ChainState> {
       isCorrupted: true,
     );
     emit(state.copyWith(blocks: corruptedBlocks));
+    unawaited(_storage.saveChain(corruptedBlocks));
     validateChain();
   }
 
   Future<void> repairChain(int fromIndex) async {
+    await _hydrated;
     if (state.isMining || state.blocks.isEmpty) return;
 
     final startIndex = fromIndex.clamp(0, state.blocks.length - 1).toInt();
@@ -264,7 +280,25 @@ class ChainCubit extends Cubit<ChainState> {
         hashrate: 'Tamamlandı',
       ),
     );
+    await _storage.saveChain(repairedBlocks);
     validateChain();
+  }
+
+  Future<void> resetChain() async {
+    await _hydrated;
+    if (state.isMining) return;
+    await _storage.clearChain();
+    emit(
+      state.copyWith(
+        blocks: const [],
+        miningNonce: 0,
+        miningHash: '',
+        hashesChecked: 0,
+        lastDuration: Duration.zero,
+        hashrate: '0 H/s',
+        selectedValidator: '',
+      ),
+    );
   }
 
   Future<_MiningResult> _mineBlock({
