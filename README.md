@@ -1,0 +1,1 @@
+# BlockCore-Studio-The-Living-Protocol
