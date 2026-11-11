@@ -5,6 +5,7 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../domain/entities/block.dart';
+import '../../domain/usecases/isolated_miner.dart';
 
 enum ConsensusType { pow, pos }
 
@@ -18,6 +19,8 @@ class ChainState {
     this.lastDuration = Duration.zero,
     this.consensusType = ConsensusType.pow,
     this.selectedValidator = '',
+    this.miningDifficulty = 2,
+    this.hashrate = '0 H/s',
   });
 
   final List<Block> blocks;
@@ -28,6 +31,8 @@ class ChainState {
   final Duration lastDuration;
   final ConsensusType consensusType;
   final String selectedValidator;
+  final int miningDifficulty;
+  final String hashrate;
 
   ChainState copyWith({
     List<Block>? blocks,
@@ -38,6 +43,8 @@ class ChainState {
     Duration? lastDuration,
     ConsensusType? consensusType,
     String? selectedValidator,
+    int? miningDifficulty,
+    String? hashrate,
   }) {
     return ChainState(
       blocks: blocks ?? this.blocks,
@@ -48,6 +55,8 @@ class ChainState {
       lastDuration: lastDuration ?? this.lastDuration,
       consensusType: consensusType ?? this.consensusType,
       selectedValidator: selectedValidator ?? this.selectedValidator,
+      miningDifficulty: miningDifficulty ?? this.miningDifficulty,
+      hashrate: hashrate ?? this.hashrate,
     );
   }
 }
@@ -67,7 +76,12 @@ class ChainCubit extends Cubit<ChainState> {
     );
   }
 
-  Future<void> addDemoBlock({int difficulty = 2}) async {
+  void setDifficulty(int difficulty) {
+    if (state.isMining || difficulty < 1 || difficulty > 4) return;
+    emit(state.copyWith(miningDifficulty: difficulty));
+  }
+
+  Future<void> addDemoBlock() async {
     if (state.isMining) return;
 
     final previous = state.blocks.isEmpty ? '0' * 64 : state.blocks.last.hash;
@@ -82,6 +96,7 @@ class ChainCubit extends Cubit<ChainState> {
         miningHash: '',
         hashesChecked: 0,
         lastDuration: Duration.zero,
+        hashrate: 'Hesaplanıyor...',
       ),
     );
 
@@ -89,7 +104,7 @@ class ChainCubit extends Cubit<ChainState> {
         ? await _mineBlock(
             index: index,
             previousHash: previous,
-            difficulty: difficulty,
+            difficulty: state.miningDifficulty,
             data: 'BlockCore transaction #$index',
             transactions: transactions,
           )
@@ -99,6 +114,14 @@ class ChainCubit extends Cubit<ChainState> {
             data: 'BlockCore transaction #$index',
             transactions: transactions,
           );
+
+    final elapsed = DateTime.now().difference(startedAt);
+    final elapsedSec = elapsed.inMicroseconds / 1000000.0;
+    final hps = elapsedSec > 0 ? (result.hashesChecked / elapsedSec) : 0.0;
+    final hashrateStr = hps >= 1000
+        ? '${(hps / 1000).toStringAsFixed(1)} KH/s'
+        : '${hps.toStringAsFixed(0)} H/s';
+
     emit(
       state.copyWith(
         blocks: [...state.blocks, result.block],
@@ -106,8 +129,9 @@ class ChainCubit extends Cubit<ChainState> {
         miningNonce: result.block.nonce,
         miningHash: result.block.hash,
         hashesChecked: result.hashesChecked,
-        lastDuration: DateTime.now().difference(startedAt),
+        lastDuration: elapsed,
         selectedValidator: result.block.validator,
+        hashrate: state.consensusType == ConsensusType.pow ? hashrateStr : '0 H/s (PoS)',
       ),
     );
   }
@@ -186,13 +210,13 @@ class ChainCubit extends Cubit<ChainState> {
   Future<void> repairChain(int fromIndex) async {
     if (state.isMining || state.blocks.isEmpty) return;
 
-    final startIndex =
-        fromIndex.clamp(0, state.blocks.length - 1).toInt();
+    final startIndex = fromIndex.clamp(0, state.blocks.length - 1).toInt();
     final startedAt = DateTime.now();
     final repairedBlocks = [...state.blocks];
     var previousHash =
         startIndex == 0 ? '0' * 64 : repairedBlocks[startIndex - 1].hash;
     var totalHashes = 0;
+
     emit(
       state.copyWith(
         isMining: true,
@@ -200,6 +224,7 @@ class ChainCubit extends Cubit<ChainState> {
         miningHash: '',
         hashesChecked: 0,
         lastDuration: Duration.zero,
+        hashrate: 'Onarılıyor...',
       ),
     );
 
@@ -212,7 +237,6 @@ class ChainCubit extends Cubit<ChainState> {
               difficulty: oldBlock.difficulty,
               data: oldBlock.data,
               transactions: oldBlock.transactions,
-              previousHashesChecked: totalHashes,
             )
           : await _forgePosBlock(
               index: oldBlock.index,
@@ -225,6 +249,7 @@ class ChainCubit extends Cubit<ChainState> {
       previousHash = result.block.hash;
     }
 
+    final elapsed = DateTime.now().difference(startedAt);
     emit(
       state.copyWith(
         blocks: repairedBlocks,
@@ -232,10 +257,11 @@ class ChainCubit extends Cubit<ChainState> {
         miningNonce: repairedBlocks.last.nonce,
         miningHash: repairedBlocks.last.hash,
         hashesChecked: totalHashes,
-        lastDuration: DateTime.now().difference(startedAt),
+        lastDuration: elapsed,
         selectedValidator: state.consensusType == ConsensusType.pos
             ? repairedBlocks.last.validator
             : '',
+        hashrate: 'Tamamlandı',
       ),
     );
     validateChain();
@@ -247,51 +273,24 @@ class ChainCubit extends Cubit<ChainState> {
     required int difficulty,
     required String data,
     required List<String> transactions,
-    int previousHashesChecked = 0,
   }) async {
-    final target = '0' * difficulty;
-    var nonce = 0;
-    var hashesChecked = 0;
-    var hash = '';
-
-    do {
-      final merkleRoot = _merkleRoot(transactions);
-      hash = _hashBlock(
-        index,
-        previousHash,
-        nonce,
-        difficulty,
-        data,
-        merkleRoot,
-        '',
-      );
-      hashesChecked++;
-      nonce++;
-
-      if (hashesChecked % 128 == 0) {
-        emit(
-          state.copyWith(
-            miningNonce: nonce,
-            miningHash: hash,
-            hashesChecked: previousHashesChecked + hashesChecked,
-          ),
-        );
-        await Future<void>.delayed(Duration.zero);
-      }
-    } while (!hash.startsWith(target));
-
-    return _MiningResult(
-      block: Block(
+    final merkleRoot = _merkleRoot(transactions);
+    
+    // Ağır madencilik CPU yükü Isolate.run() ile arka plan işletim sistemi thread'inde koşar!
+    // UI thread'i asla bloklanmaz (120 FPS akıcılık garantisi).
+    final output = await IsolatedMiner.mine(
+      MiningParams(
         index: index,
-        hash: hash,
         previousHash: previousHash,
-        nonce: nonce - 1,
         difficulty: difficulty,
         data: data,
-        transactions: transactions,
-        merkleRoot: _merkleRoot(transactions),
+        merkleRoot: merkleRoot,
       ),
-      hashesChecked: hashesChecked,
+    );
+
+    return _MiningResult(
+      block: output.block.copyWith(transactions: transactions),
+      hashesChecked: output.hashesChecked,
     );
   }
 
@@ -371,4 +370,24 @@ class _MiningResult {
 
   final Block block;
   final int hashesChecked;
+}
+
+extension BlockExtension on Block {
+  Block copyWith({
+    List<String>? transactions,
+  }) {
+    return Block(
+      index: index,
+      hash: hash,
+      previousHash: previousHash,
+      nonce: nonce,
+      difficulty: difficulty,
+      data: data,
+      transactions: transactions ?? this.transactions,
+      merkleRoot: merkleRoot,
+      validator: validator,
+      isValid: isValid,
+      isCorrupted: isCorrupted,
+    );
+  }
 }

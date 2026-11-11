@@ -141,7 +141,7 @@ class ChainExplorerPage extends StatelessWidget {
       floatingActionButton: FloatingActionButton.extended(
         onPressed: state.isMining
             ? null
-            : () => context.read<ChainCubit>().addDemoBlock(difficulty: 2),
+            : () => context.read<ChainCubit>().addDemoBlock(),
         backgroundColor: const Color(0xFF53F2C2),
         foregroundColor: const Color(0xFF07100D),
         icon: state.isMining
@@ -171,6 +171,8 @@ class _MiningPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final hash = state.miningHash.isEmpty ? 'Bekleniyor' : state.miningHash;
+    final isPow = state.consensusType == ConsensusType.pow;
+
     return Container(
       margin: const EdgeInsets.fromLTRB(20, 16, 20, 0),
       padding: const EdgeInsets.all(20),
@@ -193,46 +195,112 @@ class _MiningPanel extends StatelessWidget {
                   letterSpacing: 1.5,
                 ),
               ),
-              Text(
-                state.isMining ? '● ACTIVE' : '● READY',
-                style: TextStyle(
-                  color: state.isMining
-                      ? const Color(0xFFFFC857)
-                      : const Color(0xFF53F2C2),
-                  fontSize: 11,
-                  fontWeight: FontWeight.w800,
-                ),
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.05),
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(color: Colors.white12),
+                    ),
+                    child: const Text(
+                      '⚡ ISOLATE CORE',
+                      style: TextStyle(
+                        color: Color(0xFF53F2C2),
+                        fontSize: 9,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 0.8,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    state.isMining ? '● ACTIVE' : '● READY',
+                    style: TextStyle(
+                      color: state.isMining
+                          ? const Color(0xFFFFC857)
+                          : const Color(0xFF53F2C2),
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
           const SizedBox(height: 16),
           _ConsensusBadge(state: state),
-          const SizedBox(height: 20),
+          const SizedBox(height: 18),
+          if (isPow) ...[
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'ZORLUK DERECESİ (DIFFICULTY)',
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    fontSize: 10,
+                    letterSpacing: 1,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                Text(
+                  'Target: ${state.miningDifficulty} Sıfır',
+                  style: const TextStyle(
+                    color: Color(0xFFFFC857),
+                    fontFamily: 'monospace',
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            SegmentedButton<int>(
+              segments: const [
+                ButtonSegment(value: 1, label: Text('Diff 1')),
+                ButtonSegment(value: 2, label: Text('Diff 2')),
+                ButtonSegment(value: 3, label: Text('Diff 3')),
+                ButtonSegment(value: 4, label: Text('Diff 4')),
+              ],
+              selected: {state.miningDifficulty},
+              showSelectedIcon: false,
+              onSelectionChanged: state.isMining
+                  ? null
+                  : (selection) {
+                      if (selection.isNotEmpty) {
+                        context.read<ChainCubit>().setDifficulty(selection.first);
+                      }
+                    },
+            ),
+            const SizedBox(height: 18),
+          ],
           Row(
             children: [
               _Metric(label: 'BLOCKS', value: '${state.blocks.length}'),
               _Metric(label: 'NONCE', value: '${state.miningNonce}'),
-              _Metric(label: 'CHECKED', value: '${state.hashesChecked}'),
+              _Metric(label: 'HASHRATE', value: state.hashrate),
               _Metric(
-                label: 'LAST RUN',
+                label: 'DURATION',
                 value: state.lastDuration == Duration.zero
                     ? '--'
                     : '${state.lastDuration.inMilliseconds}ms',
               ),
             ],
           ),
-          const SizedBox(height: 18),
+          const SizedBox(height: 16),
           Text(
-            state.consensusType == ConsensusType.pow
-                ? 'SHA-256  /  DIFFICULTY 02'
-                : 'SLOT / EPOCH  /  VALIDATOR QUORUM',
+            isPow
+                ? 'SHA-256 ISOLATE ENGINE  /  TARGET ZEROES: ${state.miningDifficulty}'
+                : 'SLOT / EPOCH SIMULATION  /  VALIDATOR QUORUM',
             style: TextStyle(
               color: Theme.of(context).colorScheme.onSurfaceVariant,
               fontFamily: 'monospace',
               fontSize: 11,
             ),
           ),
-          const SizedBox(height: 7),
+          const SizedBox(height: 6),
           Text(
             hash,
             overflow: TextOverflow.ellipsis,
@@ -246,7 +314,7 @@ class _MiningPanel extends StatelessWidget {
               state.selectedValidator.isNotEmpty) ...[
             const SizedBox(height: 8),
             Text(
-              'Seçilen doğrulayıcı: ${state.selectedValidator}',
+              'Aktif Doğrulayıcı Node: ${state.selectedValidator}',
               style: const TextStyle(
                 color: Color(0xFF53F2C2),
                 fontFamily: 'monospace',
@@ -284,7 +352,7 @@ class _ConsensusBadge extends StatelessWidget {
       ),
       child: Text(
         isPow
-            ? 'Konsensüs: Proof-of-Work (Yüksek CPU, Hashrate: ~1.2 KH/s)'
+            ? 'Konsensüs: Proof-of-Work (Multi-Thread Isolate, CPU Yükü)'
             : 'Konsensüs: Proof-of-Stake (Sıfır Enerji, Anlık Kesinleşme)',
         style: TextStyle(
           color: isPow ? const Color(0xFFFFC857) : const Color(0xFF53F2C2),
@@ -321,7 +389,7 @@ class _Metric extends StatelessWidget {
             value,
             style: const TextStyle(
               fontFamily: 'monospace',
-              fontSize: 16,
+              fontSize: 14,
               fontWeight: FontWeight.w700,
             ),
           ),
