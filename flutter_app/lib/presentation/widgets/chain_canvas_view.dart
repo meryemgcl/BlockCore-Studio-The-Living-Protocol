@@ -1,3 +1,6 @@
+import 'dart:convert';
+
+import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
 
 import '../../domain/entities/block.dart';
@@ -152,61 +155,65 @@ class _BlockCard extends StatelessWidget {
       isScrollControlled: true,
       backgroundColor: const Color(0xFF12191D),
       builder: (sheetContext) {
-        return Padding(
-          padding: EdgeInsets.fromLTRB(
-            20,
-            20,
-            20,
-            MediaQuery.of(sheetContext).viewInsets.bottom + 24,
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Blok Denetim & Saldırı',
-                style: Theme.of(sheetContext).textTheme.titleLarge,
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Block #${block.index} / ${block.isValid ? 'geçerli' : 'geçersiz'}',
-                style: TextStyle(
-                  color: Theme.of(sheetContext).colorScheme.onSurfaceVariant,
-                  fontFamily: 'monospace',
-                  fontSize: 12,
+        return SingleChildScrollView(
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(
+              20,
+              20,
+              20,
+              MediaQuery.of(sheetContext).viewInsets.bottom + 24,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Blok Denetim & Saldırı',
+                  style: Theme.of(sheetContext).textTheme.titleLarge,
                 ),
-              ),
-              const SizedBox(height: 18),
-              TextField(
-                controller: controller,
-                autofocus: true,
-                minLines: 2,
-                maxLines: 4,
-                decoration: const InputDecoration(
-                  labelText: 'Blok verisi',
-                  hintText: 'Yeni veri girin',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              const SizedBox(height: 16),
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton.icon(
-                  onPressed: () {
-                    final data = controller.text.trim();
-                    if (data.isEmpty) return;
-                    Navigator.of(sheetContext).pop();
-                    onCorrupt(data);
-                  },
-                  style: FilledButton.styleFrom(
-                    backgroundColor: const Color(0xFFE53935),
-                    foregroundColor: Colors.white,
+                const SizedBox(height: 8),
+                Text(
+                  'Block #${block.index} / ${block.isValid ? 'geçerli' : 'geçersiz'}',
+                  style: TextStyle(
+                    color: Theme.of(sheetContext).colorScheme.onSurfaceVariant,
+                    fontFamily: 'monospace',
+                    fontSize: 12,
                   ),
-                  icon: const Icon(Icons.gpp_bad_outlined),
-                  label: const Text('Veriyi Manipüle Et (Saldır)'),
                 ),
-              ),
-            ],
+                const SizedBox(height: 18),
+                TextField(
+                  controller: controller,
+                  autofocus: true,
+                  minLines: 2,
+                  maxLines: 4,
+                  decoration: const InputDecoration(
+                    labelText: 'Blok verisi',
+                    hintText: 'Yeni veri girin',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    onPressed: () {
+                      final data = controller.text.trim();
+                      if (data.isEmpty) return;
+                      Navigator.of(sheetContext).pop();
+                      onCorrupt(data);
+                    },
+                    style: FilledButton.styleFrom(
+                      backgroundColor: const Color(0xFFE53935),
+                      foregroundColor: Colors.white,
+                    ),
+                    icon: const Icon(Icons.gpp_bad_outlined),
+                    label: const Text('Veriyi Manipüle Et (Saldır)'),
+                  ),
+                ),
+                const SizedBox(height: 24),
+                _MerkleTreeSection(block: block),
+              ],
+            ),
           ),
         );
       },
@@ -214,6 +221,216 @@ class _BlockCard extends StatelessWidget {
     controller.dispose();
   }
 }
+
+class _MerkleTreeSection extends StatelessWidget {
+  const _MerkleTreeSection({required this.block});
+
+  final Block block;
+
+  @override
+  Widget build(BuildContext context) {
+    final transactions =
+        block.transactions.isEmpty ? ['Tx1', 'Tx2', 'Tx3'] : block.transactions;
+    final levels = _buildMerkleLevels(transactions);
+    final root = block.merkleRoot.isEmpty ? levels.last.single : block.merkleRoot;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Merkle Kökü ve İşlem Ağacı',
+          style: Theme.of(context).textTheme.titleMedium,
+        ),
+        const SizedBox(height: 5),
+        Text(
+          'İşlemler ikişerli hashlenerek tek bir kökte birleşir.',
+          style: TextStyle(
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+            fontSize: 12,
+          ),
+        ),
+        const SizedBox(height: 16),
+        _MerkleNode(label: 'MERKLE ROOT', value: _shortHash(root), isRoot: true),
+        for (var levelIndex = levels.length - 2;
+            levelIndex >= 0;
+            levelIndex--) ...[
+          _MerkleConnector(
+            parentCount: levels[levelIndex + 1].length,
+            childCount: levels[levelIndex].length,
+          ),
+          _MerkleLevel(
+            values: levels[levelIndex],
+            labels: levelIndex == 0 ? transactions : null,
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _MerkleNode extends StatelessWidget {
+  const _MerkleNode({
+    required this.label,
+    required this.value,
+    this.isRoot = false,
+  });
+
+  final String label;
+  final String value;
+  final bool isRoot;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = isRoot
+        ? const Color(0xFF53F2C2)
+        : Theme.of(context).colorScheme.onSurface;
+    return Container(
+      constraints: const BoxConstraints(minWidth: 112, maxWidth: 148),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: isRoot ? const Color(0xFF17352F) : const Color(0xFF1A2226),
+        border: Border.all(color: color.withOpacity(.45)),
+        borderRadius: BorderRadius.circular(9),
+      ),
+      child: Column(
+        children: [
+          Text(
+            label,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: color,
+              fontSize: 9,
+              fontWeight: FontWeight.w800,
+              letterSpacing: .7,
+            ),
+          ),
+          const SizedBox(height: 3),
+          Text(
+            value,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              fontFamily: 'monospace',
+              fontSize: 10,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MerkleLevel extends StatelessWidget {
+  const _MerkleLevel({required this.values, this.labels});
+
+  final List<String> values;
+  final List<String>? labels;
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          for (var index = 0; index < values.length; index++)
+            Padding(
+              padding: EdgeInsets.only(right: index == values.length - 1 ? 0 : 8),
+              child: _MerkleNode(
+                label: labels?[index] ?? 'HASH ${index + 1}',
+                value: _shortHash(values[index]),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MerkleConnector extends StatelessWidget {
+  const _MerkleConnector({
+    required this.parentCount,
+    required this.childCount,
+  });
+
+  final int parentCount;
+  final int childCount;
+
+  @override
+  Widget build(BuildContext context) {
+    final width = (childCount * 156.0) - 8;
+    return SizedBox(
+      width: width < 112 ? 112 : width,
+      height: 30,
+      child: CustomPaint(
+        painter: _MerkleConnectorPainter(
+          parentCount: parentCount,
+          childCount: childCount,
+        ),
+        child: const SizedBox.expand(),
+      ),
+    );
+  }
+}
+
+class _MerkleConnectorPainter extends CustomPainter {
+  const _MerkleConnectorPainter({
+    required this.parentCount,
+    required this.childCount,
+  });
+
+  final int parentCount;
+  final int childCount;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = const Color(0xFF53636B)
+      ..strokeWidth = 1.2
+      ..style = PaintingStyle.stroke;
+    final parentSpacing = size.width / parentCount;
+    final childSpacing = size.width / childCount;
+    final branchY = size.height / 2;
+
+    for (var index = 0; index < childCount; index++) {
+      final parentIndex = index ~/ 2;
+      final parentX = (parentIndex + .5) * parentSpacing;
+      final childX = (index + .5) * childSpacing;
+      canvas.drawLine(Offset(parentX, 0), Offset(parentX, branchY), paint);
+      canvas.drawLine(Offset(parentX, branchY), Offset(childX, branchY), paint);
+      canvas.drawLine(
+        Offset(childX, branchY),
+        Offset(childX, size.height),
+        paint,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _MerkleConnectorPainter oldDelegate) =>
+      oldDelegate.parentCount != parentCount ||
+      oldDelegate.childCount != childCount;
+}
+
+List<List<String>> _buildMerkleLevels(List<String> transactions) {
+  var level = transactions.map(_hashText).toList();
+  final levels = <List<String>>[level];
+  while (level.length > 1) {
+    final next = <String>[];
+    for (var index = 0; index < level.length; index += 2) {
+      final right = index + 1 < level.length ? level[index + 1] : level[index];
+      next.add(_hashText('${level[index]}$right'));
+    }
+    level = next;
+    levels.add(level);
+  }
+  return levels;
+}
+
+String _hashText(String value) =>
+    sha256.convert(utf8.encode(value)).toString();
+
+String _shortHash(String value) =>
+    value.length > 14 ? '${value.substring(0, 14)}…' : value;
 
 class _DataRow extends StatelessWidget {
   const _DataRow({required this.label, required this.value});

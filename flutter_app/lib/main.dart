@@ -64,8 +64,25 @@ class ChainExplorerPage extends StatelessWidget {
           ],
         ),
         actions: [
+          SegmentedButton<ConsensusType>(
+            segments: const [
+              ButtonSegment(value: ConsensusType.pow, label: Text('PoW')),
+              ButtonSegment(value: ConsensusType.pos, label: Text('PoS')),
+            ],
+            selected: {state.consensusType},
+            showSelectedIcon: false,
+            onSelectionChanged: state.isMining
+                ? null
+                : (selection) {
+                    if (selection.isNotEmpty) {
+                      context
+                          .read<ChainCubit>()
+                          .toggleConsensus(selection.first);
+                    }
+                  },
+          ),
           Padding(
-            padding: const EdgeInsets.only(right: 16),
+            padding: const EdgeInsets.only(left: 12, right: 16),
             child: Icon(
               state.blocks.every((block) => block.isValid)
                   ? Icons.verified_user_outlined
@@ -188,6 +205,8 @@ class _MiningPanel extends StatelessWidget {
               ),
             ],
           ),
+          const SizedBox(height: 16),
+          _ConsensusBadge(state: state),
           const SizedBox(height: 20),
           Row(
             children: [
@@ -204,7 +223,9 @@ class _MiningPanel extends StatelessWidget {
           ),
           const SizedBox(height: 18),
           Text(
-            'SHA-256  /  DIFFICULTY 02',
+            state.consensusType == ConsensusType.pow
+                ? 'SHA-256  /  DIFFICULTY 02'
+                : 'SLOT / EPOCH  /  VALIDATOR QUORUM',
             style: TextStyle(
               color: Theme.of(context).colorScheme.onSurfaceVariant,
               fontFamily: 'monospace',
@@ -221,7 +242,55 @@ class _MiningPanel extends StatelessWidget {
               fontSize: 12,
             ),
           ),
+          if (state.consensusType == ConsensusType.pos &&
+              state.selectedValidator.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Text(
+              'Seçilen doğrulayıcı: ${state.selectedValidator}',
+              style: const TextStyle(
+                color: Color(0xFF53F2C2),
+                fontFamily: 'monospace',
+                fontSize: 11,
+              ),
+            ),
+          ],
         ],
+      ),
+    );
+  }
+}
+
+class _ConsensusBadge extends StatelessWidget {
+  const _ConsensusBadge({required this.state});
+
+  final ChainState state;
+
+  @override
+  Widget build(BuildContext context) {
+    final isPow = state.consensusType == ConsensusType.pow;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: isPow
+            ? const Color(0xFF2A2518)
+            : const Color(0xFF17352F),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: isPow
+              ? const Color(0xFFFFC857).withOpacity(.35)
+              : const Color(0xFF53F2C2).withOpacity(.35),
+        ),
+      ),
+      child: Text(
+        isPow
+            ? 'Konsensüs: Proof-of-Work (Yüksek CPU, Hashrate: ~1.2 KH/s)'
+            : 'Konsensüs: Proof-of-Stake (Sıfır Enerji, Anlık Kesinleşme)',
+        style: TextStyle(
+          color: isPow ? const Color(0xFFFFC857) : const Color(0xFF53F2C2),
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+        ),
       ),
     );
   }

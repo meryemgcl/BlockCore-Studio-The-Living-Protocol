@@ -6,6 +6,9 @@ class Block {
     required this.nonce,
     required this.difficulty,
     this.data = '',
+    this.transactions = const [],
+    this.merkleRoot = '',
+    this.validator = '',
     this.isValid = true,
     this.isCorrupted = false,
   });
@@ -16,6 +19,9 @@ class Block {
   final int nonce;
   final int difficulty;
   final String data;
+  final List<String> transactions;
+  final String merkleRoot;
+  final String validator;
   final bool isValid;
   final bool isCorrupted;
 

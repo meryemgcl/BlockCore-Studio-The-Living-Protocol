@@ -1,9 +1,12 @@
 import 'dart:convert';
+import 'dart:math';
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../domain/entities/block.dart';
+
+enum ConsensusType { pow, pos }
 
 class ChainState {
   const ChainState({
@@ -13,6 +16,8 @@ class ChainState {
     this.miningHash = '',
     this.hashesChecked = 0,
     this.lastDuration = Duration.zero,
+    this.consensusType = ConsensusType.pow,
+    this.selectedValidator = '',
   });
 
   final List<Block> blocks;
@@ -21,6 +26,8 @@ class ChainState {
   final String miningHash;
   final int hashesChecked;
   final Duration lastDuration;
+  final ConsensusType consensusType;
+  final String selectedValidator;
 
   ChainState copyWith({
     List<Block>? blocks,
@@ -29,6 +36,8 @@ class ChainState {
     String? miningHash,
     int? hashesChecked,
     Duration? lastDuration,
+    ConsensusType? consensusType,
+    String? selectedValidator,
   }) {
     return ChainState(
       blocks: blocks ?? this.blocks,
@@ -37,6 +46,8 @@ class ChainState {
       miningHash: miningHash ?? this.miningHash,
       hashesChecked: hashesChecked ?? this.hashesChecked,
       lastDuration: lastDuration ?? this.lastDuration,
+      consensusType: consensusType ?? this.consensusType,
+      selectedValidator: selectedValidator ?? this.selectedValidator,
     );
   }
 }
@@ -44,12 +55,25 @@ class ChainState {
 class ChainCubit extends Cubit<ChainState> {
   ChainCubit() : super(const ChainState());
 
+  static const validators = ['Alpha', 'Beta', 'Gamma'];
+
+  void toggleConsensus(ConsensusType type) {
+    if (state.isMining || state.consensusType == type) return;
+    emit(
+      state.copyWith(
+        consensusType: type,
+        selectedValidator: type == ConsensusType.pos ? state.selectedValidator : '',
+      ),
+    );
+  }
+
   Future<void> addDemoBlock({int difficulty = 2}) async {
     if (state.isMining) return;
 
     final previous = state.blocks.isEmpty ? '0' * 64 : state.blocks.last.hash;
     final index = state.blocks.length;
     final startedAt = DateTime.now();
+    final transactions = _transactionsFor(index);
 
     emit(
       state.copyWith(
@@ -61,12 +85,20 @@ class ChainCubit extends Cubit<ChainState> {
       ),
     );
 
-    final result = await _mineBlock(
-      index: index,
-      previousHash: previous,
-      difficulty: difficulty,
-      data: 'BlockCore transaction #$index',
-    );
+    final result = state.consensusType == ConsensusType.pow
+        ? await _mineBlock(
+            index: index,
+            previousHash: previous,
+            difficulty: difficulty,
+            data: 'BlockCore transaction #$index',
+            transactions: transactions,
+          )
+        : await _forgePosBlock(
+            index: index,
+            previousHash: previous,
+            data: 'BlockCore transaction #$index',
+            transactions: transactions,
+          );
     emit(
       state.copyWith(
         blocks: [...state.blocks, result.block],
@@ -75,6 +107,7 @@ class ChainCubit extends Cubit<ChainState> {
         miningHash: result.block.hash,
         hashesChecked: result.hashesChecked,
         lastDuration: DateTime.now().difference(startedAt),
+        selectedValidator: result.block.validator,
       ),
     );
   }
@@ -93,10 +126,20 @@ class ChainCubit extends Cubit<ChainState> {
             block.nonce,
             block.difficulty,
             block.data,
+            block.merkleRoot,
+            block.validator,
           ) ==
           block.hash;
+      final merkleMatches = _merkleRoot(block.transactions) == block.merkleRoot;
       final previousMatches = block.previousHash == expectedPreviousHash;
-      final isValid = chainIsValid && hashMatches && previousMatches;
+      final consensusMatches = block.validator.isNotEmpty ||
+          block.hash.startsWith('0' * block.difficulty);
+      final isValid =
+          chainIsValid &&
+          hashMatches &&
+          merkleMatches &&
+          previousMatches &&
+          consensusMatches;
       chainIsValid = isValid;
       validatedBlocks.add(
         Block(
@@ -106,8 +149,11 @@ class ChainCubit extends Cubit<ChainState> {
           nonce: block.nonce,
           difficulty: block.difficulty,
           data: block.data,
+          transactions: block.transactions,
+          merkleRoot: block.merkleRoot,
+          validator: block.validator,
           isValid: isValid,
-          isCorrupted: block.isCorrupted || !hashMatches,
+          isCorrupted: block.isCorrupted || !hashMatches || !merkleMatches,
         ),
       );
     }
@@ -127,6 +173,9 @@ class ChainCubit extends Cubit<ChainState> {
       nonce: block.nonce,
       difficulty: block.difficulty,
       data: maliciousData,
+      transactions: block.transactions,
+      merkleRoot: block.merkleRoot,
+      validator: block.validator,
       isValid: false,
       isCorrupted: true,
     );
@@ -156,13 +205,21 @@ class ChainCubit extends Cubit<ChainState> {
 
     for (var index = startIndex; index < repairedBlocks.length; index++) {
       final oldBlock = repairedBlocks[index];
-      final result = await _mineBlock(
-        index: oldBlock.index,
-        previousHash: previousHash,
-        difficulty: oldBlock.difficulty,
-        data: oldBlock.data,
-        previousHashesChecked: totalHashes,
-      );
+      final result = state.consensusType == ConsensusType.pow
+          ? await _mineBlock(
+              index: oldBlock.index,
+              previousHash: previousHash,
+              difficulty: oldBlock.difficulty,
+              data: oldBlock.data,
+              transactions: oldBlock.transactions,
+              previousHashesChecked: totalHashes,
+            )
+          : await _forgePosBlock(
+              index: oldBlock.index,
+              previousHash: previousHash,
+              data: oldBlock.data,
+              transactions: oldBlock.transactions,
+            );
       totalHashes += result.hashesChecked;
       repairedBlocks[index] = result.block;
       previousHash = result.block.hash;
@@ -176,6 +233,9 @@ class ChainCubit extends Cubit<ChainState> {
         miningHash: repairedBlocks.last.hash,
         hashesChecked: totalHashes,
         lastDuration: DateTime.now().difference(startedAt),
+        selectedValidator: state.consensusType == ConsensusType.pos
+            ? repairedBlocks.last.validator
+            : '',
       ),
     );
     validateChain();
@@ -186,6 +246,7 @@ class ChainCubit extends Cubit<ChainState> {
     required String previousHash,
     required int difficulty,
     required String data,
+    required List<String> transactions,
     int previousHashesChecked = 0,
   }) async {
     final target = '0' * difficulty;
@@ -194,7 +255,16 @@ class ChainCubit extends Cubit<ChainState> {
     var hash = '';
 
     do {
-      hash = _hashBlock(index, previousHash, nonce, difficulty, data);
+      final merkleRoot = _merkleRoot(transactions);
+      hash = _hashBlock(
+        index,
+        previousHash,
+        nonce,
+        difficulty,
+        data,
+        merkleRoot,
+        '',
+      );
       hashesChecked++;
       nonce++;
 
@@ -218,10 +288,68 @@ class ChainCubit extends Cubit<ChainState> {
         nonce: nonce - 1,
         difficulty: difficulty,
         data: data,
+        transactions: transactions,
+        merkleRoot: _merkleRoot(transactions),
       ),
       hashesChecked: hashesChecked,
     );
   }
+
+  Future<_MiningResult> _forgePosBlock({
+    required int index,
+    required String previousHash,
+    required String data,
+    required List<String> transactions,
+  }) async {
+    await Future<void>.delayed(const Duration(milliseconds: 200));
+    final validator = validators[Random().nextInt(validators.length)];
+    final merkleRoot = _merkleRoot(transactions);
+    final hash = _hashBlock(
+      index,
+      previousHash,
+      0,
+      0,
+      data,
+      merkleRoot,
+      validator,
+    );
+    return _MiningResult(
+      block: Block(
+        index: index,
+        hash: hash,
+        previousHash: previousHash,
+        nonce: 0,
+        difficulty: 0,
+        data: data,
+        transactions: transactions,
+        merkleRoot: merkleRoot,
+        validator: validator,
+      ),
+      hashesChecked: 0,
+    );
+  }
+
+  List<String> _transactionsFor(int index) {
+    return ['Tx$index-A', 'Tx$index-B', 'Tx$index-C'];
+  }
+
+  String _merkleRoot(List<String> transactions) {
+    if (transactions.isEmpty) return sha256.convert(utf8.encode('')).toString();
+
+    var level = transactions.map(_hashText).toList();
+    while (level.length > 1) {
+      final next = <String>[];
+      for (var index = 0; index < level.length; index += 2) {
+        final right = index + 1 < level.length ? level[index + 1] : level[index];
+        next.add(_hashText('${level[index]}$right'));
+      }
+      level = next;
+    }
+    return level.single;
+  }
+
+  String _hashText(String value) =>
+      sha256.convert(utf8.encode(value)).toString();
 
   String _hashBlock(
     int index,
@@ -229,8 +357,11 @@ class ChainCubit extends Cubit<ChainState> {
     int nonce,
     int difficulty,
     String data,
+    String merkleRoot,
+    String validator,
   ) {
-    final payload = '$index:$previousHash:$nonce:$difficulty:$data';
+    final payload =
+        '$index:$previousHash:$nonce:$difficulty:$data:$merkleRoot:$validator';
     return sha256.convert(utf8.encode(payload)).toString();
   }
 }
