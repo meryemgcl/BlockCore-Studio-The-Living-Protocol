@@ -78,11 +78,11 @@ class _BlockCard extends StatelessWidget {
               ? colors.surfaceContainerHigh
               : const Color(0xFF4A1515),
           borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: accent.withOpacity(.55)),
+          border: Border.all(color: accent.withValues(alpha: .55)),
           boxShadow: [
             if (block.isValid)
               BoxShadow(
-                color: accent.withOpacity(.08),
+                color: accent.withValues(alpha: .08),
                 blurRadius: 14,
                 offset: const Offset(0, 6),
               ),
@@ -136,7 +136,8 @@ class _BlockCard extends StatelessWidget {
             const SizedBox(height: 10),
             Row(
               children: [
-                Expanded(child: _DataRow(label: 'NONCE', value: '${block.nonce}')),
+                Expanded(
+                    child: _DataRow(label: 'NONCE', value: '${block.nonce}')),
                 _DifficultyBadge(value: block.difficulty, color: accent),
               ],
             ),
@@ -232,7 +233,8 @@ class _MerkleTreeSection extends StatelessWidget {
     final transactions =
         block.transactions.isEmpty ? ['Tx1', 'Tx2', 'Tx3'] : block.transactions;
     final levels = _buildMerkleLevels(transactions);
-    final root = block.merkleRoot.isEmpty ? levels.last.single : block.merkleRoot;
+    final root =
+        block.merkleRoot.isEmpty ? levels.last.single : block.merkleRoot;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -250,7 +252,8 @@ class _MerkleTreeSection extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 16),
-        _MerkleNode(label: 'MERKLE ROOT', value: _shortHash(root), isRoot: true),
+        _MerkleNode(
+            label: 'MERKLE ROOT', value: _shortHash(root), isRoot: true),
         for (var levelIndex = levels.length - 2;
             levelIndex >= 0;
             levelIndex--) ...[
@@ -289,7 +292,7 @@ class _MerkleNode extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
         color: isRoot ? const Color(0xFF17352F) : const Color(0xFF1A2226),
-        border: Border.all(color: color.withOpacity(.45)),
+        border: Border.all(color: color.withValues(alpha: .45)),
         borderRadius: BorderRadius.circular(9),
       ),
       child: Column(
@@ -334,7 +337,8 @@ class _MerkleLevel extends StatelessWidget {
         children: [
           for (var index = 0; index < values.length; index++)
             Padding(
-              padding: EdgeInsets.only(right: index == values.length - 1 ? 0 : 8),
+              padding:
+                  EdgeInsets.only(right: index == values.length - 1 ? 0 : 8),
               child: _MerkleNode(
                 label: labels?[index] ?? 'HASH ${index + 1}',
                 value: _shortHash(values[index]),
@@ -426,8 +430,7 @@ List<List<String>> _buildMerkleLevels(List<String> transactions) {
   return levels;
 }
 
-String _hashText(String value) =>
-    sha256.convert(utf8.encode(value)).toString();
+String _hashText(String value) => sha256.convert(utf8.encode(value)).toString();
 
 String _shortHash(String value) =>
     value.length > 14 ? '${value.substring(0, 14)}…' : value;
@@ -477,7 +480,7 @@ class _DifficultyBadge extends StatelessWidget {
   Widget build(BuildContext context) {
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: color.withOpacity(.12),
+        color: color.withValues(alpha: .12),
         borderRadius: BorderRadius.circular(8),
       ),
       child: Padding(
@@ -523,9 +526,8 @@ class _ChainLink extends StatelessWidget {
           Text(
             hash.length > 8 ? '${hash.substring(0, 8)}…' : hash,
             style: TextStyle(
-              color: isValid
-                  ? const Color(0xFF53F2C2)
-                  : const Color(0xFFE53935),
+              color:
+                  isValid ? const Color(0xFF53F2C2) : const Color(0xFFE53935),
               fontSize: 10,
               fontFamily: 'monospace',
             ),
@@ -562,12 +564,11 @@ class _ChainLinkPainter extends CustomPainter {
       path,
       Paint()
         ..color = (isValid ? const Color(0xFF53F2C2) : const Color(0xFFE53935))
-            .withOpacity(.16)
+            .withValues(alpha: .16)
         ..strokeWidth = isValid ? 7 : 4
         ..style = PaintingStyle.stroke
-        ..maskFilter = isValid
-            ? const MaskFilter.blur(BlurStyle.normal, 4)
-            : null,
+        ..maskFilter =
+            isValid ? const MaskFilter.blur(BlurStyle.normal, 4) : null,
     );
     canvas.drawPath(
       path,
